@@ -70,112 +70,168 @@ try:
     )
     print("Successfully switched to the 'Hide My Email' modal.")
 
-    # 8. Handle optional search
-    search_term = None # Initialize search_term
-    use_search = input("Do you want to delete emails containing a specific search term? (yes/no): ").lower()
+    # 8. Mode and Search Term selection at the beginning
+    mode = ""
+    while mode not in ['1', '2']:
+        mode = input("Select a mode:\n1. Deactivate active emails\n2. Permanently delete inactive emails\nEnter choice (1 or 2): ")
+
+    search_term = None
+    search_input_xpath = None
+    search_button_xpath = None
+    use_search = input("Do you want to filter by a specific search term? (yes/no): ").lower()
     if use_search in ['yes', 'y']:
         search_term = input("What term would you like to search for?: ")
-        print(f"Searching for emails containing '{search_term}'...")
+        print(f"Filtering for emails containing '{search_term}'...")
         
+        # Use specific XPaths for search based on mode
+        if mode == '1':
+            search_button_xpath = "/html/body/aside/div/div[1]/div/div/div[2]/section[1]/div/div/div[1]/div/div[1]/button"
+            search_input_xpath = "/html/body/aside/div/div[1]/div/div/div[2]/section[1]/div/div/div[2]/div[1]/div/input"
+        else: # mode == '2'
+            search_button_xpath = "/html/body/aside/div/div[1]/div/div/div[2]/section[3]/div/div[1]/div/div/button"
+            search_input_xpath = "/html/body/aside/div/div[1]/div/div/div[2]/section[3]/div/div[2]/div[1]/div/input"
+
         search_button = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.XPATH, "//button[@title='Search']"))
+            EC.element_to_be_clickable((By.XPATH, search_button_xpath))
         )
         search_button.click()
         
         search_input = WebDriverWait(driver, 20).until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "form-textbox-input"))
+            EC.element_to_be_clickable((By.XPATH, search_input_xpath))
         )
         search_input.send_keys(search_term)
-        print("Search term entered. Waiting for results to filter...")
-        time.sleep(3) # Wait for search results to filter
+        time.sleep(3)
 
-        # Count the emails that match the search criteria
-        active_list_xpath = "//div[.//h2[contains(text(), 'active email addresses')]]/following-sibling::div//li[contains(@class, 'card-list-item-platter')]"
-        filtered_emails = driver.find_elements(By.XPATH, active_list_xpath)
-        print(f"Found {len(filtered_emails)} active email(s) matching your search.")
-
-    else:
-        print("Proceeding without a search filter.")
-
-    # 9. Main deactivation loop
-    print("\nStarting deactivation process...")
-    deactivated_count = 0
-    while True:
-        try:
-            # Find the header to get the count for logging
+    # --- DEACTIVATION MODE ---
+    if mode == '1':
+        print("\nStarting Deactivation process...")
+        processed_count = 0
+        while True:
             try:
+                # Get count from header text
                 header_element = WebDriverWait(driver, 10).until(
                     EC.presence_of_element_located((By.XPATH, "//h2[contains(text(), 'active email addresses')]"))
                 )
                 header_text = header_element.text
                 email_count_from_text = header_text.split()[0]
                 print(f"Remaining active emails: {email_count_from_text}")
-            except:
-                # If the header isn't found, it likely means there are no active emails left.
-                print("Could not find the 'active email addresses' header. Assuming process is complete.")
-                break
 
-            # Find the actual list of emails to process
-            active_list_xpath = "//div[.//h2[contains(text(), 'active email addresses')]]/following-sibling::div//li[contains(@class, 'card-list-item-platter')]"
-            email_items = driver.find_elements(By.XPATH, active_list_xpath)
-            
-            if not email_items:
-                print("No more email addresses found to deactivate.")
-                break
-            
-            item = email_items[0]
-
-            expand_button = item.find_element(By.CLASS_NAME, "button-expand")
-            driver.execute_script("arguments[0].click();", expand_button)
-            time.sleep(2)
-
-            deactivate_button = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, "//button[text()='Deactivate email address']"))
-            )
-            driver.execute_script("arguments[0].click();", deactivate_button)
-            
-            time.sleep(1)
-            confirm_button_xpath = "//button[.//span[text()='Deactivate']]"
-            confirm_deactivate_button = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, confirm_button_xpath))
-            )
-            driver.execute_script("arguments[0].click();", confirm_deactivate_button)
-            
-            WebDriverWait(driver, 15).until(
-                EC.invisibility_of_element_located((By.XPATH, confirm_button_xpath))
-            )
-
-            deactivated_count += 1
-            print(f"Successfully deactivated email #{deactivated_count}")
-            
-            time.sleep(2)
-
-            if search_term:
-                print("Re-applying search filter...")
-                search_button = WebDriverWait(driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, "//button[@title='Search']"))
-                )
-                search_button.click()
+                active_list_xpath = "//div[.//h2[contains(text(), 'active email addresses')]]/following-sibling::div//li[contains(@class, 'card-list-item-platter')]"
+                email_items = driver.find_elements(By.XPATH, active_list_xpath)
                 
-                search_input = WebDriverWait(driver, 20).until(
-                    EC.element_to_be_clickable((By.CLASS_NAME, "form-textbox-input"))
+                if not email_items:
+                    print("No more active emails found to process.")
+                    break
+                
+                item = email_items[0]
+                expand_button = item.find_element(By.CLASS_NAME, "button-expand")
+                driver.execute_script("arguments[0].click();", expand_button)
+                time.sleep(2)
+
+                deactivate_button = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[text()='Deactivate email address']"))
                 )
-                search_input.clear()
-                search_input.send_keys(search_term)
-                time.sleep(3)
+                driver.execute_script("arguments[0].click();", deactivate_button)
+                
+                time.sleep(1)
+                confirm_button_xpath = "//button[.//span[text()='Deactivate']]"
+                confirm_deactivate_button = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.XPATH, confirm_button_xpath))
+                )
+                driver.execute_script("arguments[0].click();", confirm_deactivate_button)
+                
+                WebDriverWait(driver, 15).until(EC.invisibility_of_element_located((By.XPATH, confirm_button_xpath)))
+                processed_count += 1
+                print(f"Successfully deactivated email #{processed_count}")
+                time.sleep(2)
 
-        except StaleElementReferenceException:
-            print("Page refreshed. Re-finding email list...")
-            continue
-        except TimeoutException:
-            print("No more active email addresses found.")
-            break
-        except Exception as e:
-            print(f"An unexpected error occurred: {e}")
-            break
+                if search_term:
+                    # UPDATED: Re-apply search filter
+                    print("Re-applying search filter...")
+                    search_button = WebDriverWait(driver, 20).until(
+                        EC.element_to_be_clickable((By.XPATH, search_button_xpath))
+                    )
+                    search_button.click()
+                    
+                    search_input = WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, search_input_xpath)))
+                    search_input.clear()
+                    search_input.send_keys(search_term)
+                    time.sleep(3)
 
-    print(f"\n✅ Deactivation complete. Total addresses deactivated: {deactivated_count}")
-    time.sleep(3)
+            except (TimeoutException, IndexError):
+                print("No more active email addresses found.")
+                break
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                break
+        print(f"\n✅ Deactivation complete. Total addresses deactivated: {processed_count}")
+
+    # --- DELETION MODE ---
+    elif mode == '2':
+        print("\nStarting Deletion process...")
+        processed_count = 0
+        while True:
+            try:
+                header_element = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, "//h2[contains(text(), 'inactive email addresses')]"))
+                )
+                header_text = header_element.text
+                email_count_from_text = header_text.split()[0]
+                print(f"Remaining inactive emails: {email_count_from_text}")
+
+                inactive_list_xpath = "//div[.//h2[contains(text(), 'inactive email addresses')]]/following-sibling::div//li[contains(@class, 'card-list-item-platter')]"
+                email_items = driver.find_elements(By.XPATH, inactive_list_xpath)
+
+                if not email_items:
+                    print("No more inactive email addresses found.")
+                    break
+
+                item = email_items[0]
+                expand_button = item.find_element(By.CLASS_NAME, "button-expand")
+                driver.execute_script("arguments[0].click();", expand_button)
+                time.sleep(2)
+
+                delete_button = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.XPATH, "//button[text()='Delete address']"))
+                )
+                driver.execute_script("arguments[0].click();", delete_button)
+                
+                time.sleep(1)
+                confirm_button_xpath = "//button[.//span[text()='Delete']]"
+                confirm_delete_button = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.XPATH, confirm_button_xpath))
+                )
+                driver.execute_script("arguments[0].click();", confirm_delete_button)
+
+                WebDriverWait(driver, 15).until(EC.invisibility_of_element_located((By.XPATH, confirm_button_xpath)))
+                processed_count += 1
+                print(f"Successfully deleted email #{processed_count}")
+                time.sleep(2)
+
+                if search_term:
+                    # Re-apply search filter
+                    print("Re-applying search filter...")
+                    search_button = WebDriverWait(driver, 20).until(
+                        EC.element_to_be_clickable((By.XPATH, search_button_xpath))
+                    )
+                    search_button.click()
+                    
+                    search_input = WebDriverWait(driver, 20).until(
+                        EC.element_to_be_clickable((By.XPATH, search_input_xpath))
+                    )
+                    search_input.clear()
+                    search_input.send_keys(search_term)
+                    time.sleep(3)
+
+            except (TimeoutException, IndexError):
+                print("No more inactive email addresses found.")
+                break
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                break
+        print(f"\n✅ Deletion complete. Total addresses deleted: {processed_count}")
+
+    time.sleep(10)
 
 except TimeoutException as e:
     print("\n--- ERROR ---")
