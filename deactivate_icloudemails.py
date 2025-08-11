@@ -383,13 +383,8 @@ class EmailManager:
         # Apply search if needed
         if search_term:
             print(f"Applying filter: '{search_term}'...")
-            self.apply_search_filter(section)
-            search_input = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, XPATHS[section]['search_input']))
-            )
-            search_input.clear()
-            search_input.send_keys(search_term)
-            time.sleep(3)
+            self.apply_search_filter(section, search_term)
+            time.sleep(1)  # Give time for results to update
         
         # Get email count and items
         total, relevant, items = self.get_email_count(section)
@@ -423,52 +418,68 @@ class EmailManager:
             display_count = relevant
             
         print(f"\nDisplaying {min(display_count, relevant)} {section} emails:")
-        print("-" * 50)
+        print("-" * 80)
         
-        # Display emails
+        # Display emails with labels
         displayed = 0
+        emails_with_labels = []
         for i, item in enumerate(items[:display_count], 1):
             try:
-                email_address = item.find_element(By.CLASS_NAME, "searchable-card-subtitle").text
-                print(f"{i:3}. {email_address}")
-                displayed += 1
-                
-                # Add a small delay every 10 items to avoid overwhelming
-                if i % 10 == 0:
-                    time.sleep(0.5)
+                email_address, label = self.get_email_details(item)
+                if email_address:
+                    # Format the output with label if available
+                    if label:
+                        print(f"{i:3}. {email_address:<50} → {label}")
+                    else:
+                        print(f"{i:3}. {email_address}")
+                    emails_with_labels.append((email_address, label))
+                    displayed += 1
+                    
+                    # Add a small delay every 10 items to avoid overwhelming
+                    if i % 10 == 0:
+                        time.sleep(0.5)
                     
             except Exception as e:
                 print(f"{i:3}. [Error reading email: {e}]")
                 
-        print("-" * 50)
+        print("-" * 80)
         print(f"Displayed {displayed} of {relevant} {section} emails")
         
         # Show summary by service if more than 10 emails
         if displayed >= 10:
-            self.show_email_summary(items[:display_count])
+            self.show_email_summary_with_labels(emails_with_labels)
             
-    def show_email_summary(self, items):
-        """Show summary of emails by service/domain"""
+    def show_email_summary_with_labels(self, emails_with_labels):
+        """Show summary of emails by service/domain and labels"""
         services = {}
+        labels_count = {}
         
-        for item in items:
-            try:
-                email = item.find_element(By.CLASS_NAME, "searchable-card-subtitle").text
-                # Extract service name (part before @ and after last .)
-                if '@' in email:
-                    prefix = email.split('@')[0]
-                    # Get the last part before dots (usually the service name)
-                    parts = prefix.split('.')
-                    service = parts[-1] if parts else prefix
-                    services[service] = services.get(service, 0) + 1
-            except:
-                continue
+        for email, label in emails_with_labels:
+            # Count by service
+            if '@' in email:
+                prefix = email.split('@')[0]
+                parts = prefix.split('.')
+                service = parts[-1] if parts else prefix
+                services[service] = services.get(service, 0) + 1
+            
+            # Count by label (if exists)
+            if label:
+                # Extract just the main label part (before any parentheses)
+                main_label = label.split('(')[0].strip() if '(' in label else label
+                if main_label:
+                    labels_count[main_label] = labels_count.get(main_label, 0) + 1
                 
         if services:
             print("\n📊 Summary by service:")
             sorted_services = sorted(services.items(), key=lambda x: x[1], reverse=True)
             for service, count in sorted_services[:10]:  # Show top 10
                 print(f"   • {service}: {count} email{'s' if count > 1 else ''}")
+                
+        if labels_count:
+            print("\n🏷️  Summary by label:")
+            sorted_labels = sorted(labels_count.items(), key=lambda x: x[1], reverse=True)
+            for label, count in sorted_labels[:10]:  # Show top 10
+                print(f"   • {label}: {count} email{'s' if count > 1 else ''}")
     
     def preview_and_confirm_operation(self, section, action, search_term=None):
         """Preview emails that will be affected and get confirmation"""
@@ -484,6 +495,13 @@ class EmailManager:
         
         print(f"The following emails will be {action_text}:")
         print(f"{'='*60}\n")
+        
+        # Use the search_term parameter, or fall back to self.search_term
+        term_to_use = search_term if search_term is not None else self.search_term
+        
+        # Apply search filter if needed
+        if term_to_use:
+            self.apply_search_filter(section, term_to_use)
         
         # Get emails that will be affected
         total, relevant, items = self.get_email_count(section)
@@ -647,17 +665,22 @@ class EmailManager:
             
             if use_search in ['yes', 'y']:
                 self.search_term = self.get_search_term()
-                print(f"Searching for '{self.search_term}' in both emails and labels...")
+                print(f"Search term set: '{self.search_term}'")
+            else:
+                print("No search filter will be applied - processing all emails...")
                 
-        if self.search_term:
-            self.apply_search_filter('active' if self.mode in ['1', '3'] else 'inactive')
-        else:
-            print("No search filter applied - processing all emails...")
-            time.sleep(2)
+        # For purge mode, search term is already set in handle_purge_confirmation
             
-    def apply_search_filter(self, section):
+    def apply_search_filter(self, section, search_term=None):
         """Apply search filter to specified section"""
-        print(f"Applying search filter to {section} section...")
+        # Use provided search_term or fall back to self.search_term
+        term_to_use = search_term if search_term is not None else self.search_term
+        
+        if not term_to_use:
+            return  # No search term to apply
+            
+        print(f"Applying search filter '{term_to_use}' to {section} section...")
+        
         search_button = WebDriverWait(self.driver, WAIT_TIMEOUT).until(
             EC.element_to_be_clickable((By.XPATH, XPATHS[section]['search_button']))
         )
@@ -667,16 +690,21 @@ class EmailManager:
             EC.element_to_be_clickable((By.XPATH, XPATHS[section]['search_input']))
         )
         search_input.clear()
-        search_input.send_keys(self.search_term)
-        time.sleep(3)
-        
+        search_input.send_keys(term_to_use)
+        time.sleep(2)  # Allow results to update
+            
     def get_email_count(self, section):
         """Get count of emails in the specified section"""
         try:
             header = WebDriverWait(self.driver, 10).until(
                 EC.presence_of_element_located((By.XPATH, XPATHS[section]['header']))
             )
-            total_count = header.text.split()[0]
+            header_text = header.text
+            # Extract number from header text (e.g., "42 active" or "no active")
+            if 'no' in header_text.lower():
+                total_count = "0"
+            else:
+                total_count = header_text.split()[0]
             
             # Try to get container and count items
             try:
@@ -694,7 +722,7 @@ class EmailManager:
                 )
                 relevant_count = len(items)
                 
-            return total_count, relevant_count, items
+            return total_count, relevant_count, items if items else []
             
         except Exception as e:
             print(f"Error getting {section} email count: {e}")
@@ -801,36 +829,6 @@ class EmailManager:
             print(f"Error processing email: {e}")
             return False, None
     
-    def estimate_time_remaining(self, processed, total, start_time):
-        """Estimate time remaining based on current pace"""
-        if processed == 0:
-            return "Calculating..."
-        
-        elapsed = time.time() - start_time
-        if elapsed < 1:  # Avoid division issues
-            return "Calculating..."
-            
-        rate = processed / elapsed  # emails per second
-        remaining = total - processed
-        eta_seconds = remaining / rate if rate > 0 else 0
-        
-        if eta_seconds < 60:
-            return f"{eta_seconds:.0f} seconds"
-        elif eta_seconds < 3600:
-            return f"{eta_seconds/60:.1f} minutes"
-        else:
-            return f"{eta_seconds/3600:.1f} hours"
-    
-    def format_elapsed_time(self, start_time):
-        """Format elapsed time in human-readable format"""
-        elapsed = time.time() - start_time
-        if elapsed < 60:
-            return f"{elapsed:.0f} seconds"
-        elif elapsed < 3600:
-            return f"{elapsed/60:.1f} minutes"
-        else:
-            return f"{elapsed/3600:.1f} hours"
-    
     def preview_purge_operation(self):
         """Preview both active and inactive emails for purge operation"""
         print(f"\n{'='*60}")
@@ -841,13 +839,8 @@ class EmailManager:
         
         # Get active emails
         if self.search_term:
-            self.apply_search_filter('active')
-            search_input = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, XPATHS['active']['search_input']))
-            )
-            search_input.clear()
-            search_input.send_keys(self.search_term)
-            time.sleep(3)
+            self.apply_search_filter('active', self.search_term)
+            time.sleep(1)  # Give time for results to update
             
         active_total, active_relevant, active_items = self.get_email_count('active')
         
@@ -861,13 +854,8 @@ class EmailManager:
                 
         # Get inactive emails (in case some are already inactive)
         if self.search_term:
-            self.apply_search_filter('inactive')
-            search_input = WebDriverWait(self.driver, 10).until(
-                EC.element_to_be_clickable((By.XPATH, XPATHS['inactive']['search_input']))
-            )
-            search_input.clear()
-            search_input.send_keys(self.search_term)
-            time.sleep(3)
+            self.apply_search_filter('inactive', self.search_term)
+            time.sleep(1)
             
         inactive_total, inactive_relevant, inactive_items = self.get_email_count('inactive')
         
@@ -1067,7 +1055,7 @@ class EmailManager:
                     print(f"\nRemaining inactive emails matching '{self.search_term}': {relevant} (Total inactive: {total})")
                 else:
                     print(f"\nRemaining inactive emails: {relevant}")
-                
+
                 # Show progress and time estimate if we've processed some
                 if processed_count > 0 and initial_total > 0:
                     progress_pct = (processed_count / initial_total) * 100
@@ -1205,6 +1193,8 @@ class EmailManager:
                 
                 # Execute based on mode
                 if self.mode == '1' or self.mode == '3':
+                    if self.mode == '3':
+                        self.is_purge_mode = True
                     self.deactivate_emails()
                     
                     if self.original_mode == '3':
@@ -1223,7 +1213,7 @@ class EmailManager:
                 )
                 
                 if continue_choice in ['no', 'n']:
-                    print("Thank you for using Hide My Email Manager!")
+                    print("Script Finished.")
                     print("You can close the browser window manually.")
                     break
                     
