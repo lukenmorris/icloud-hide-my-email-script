@@ -235,6 +235,53 @@ class EmailManager:
                     pass
             self.driver.refresh()
     
+    def reset_hide_my_email(self):
+        """Reset the Hide My Email interface by navigating back and reopening"""
+        print("Resetting Hide My Email interface...")
+        
+        try:
+            # Switch back to main content (exit iframe)
+            self.driver.switch_to.default_content()
+            
+            # Navigate back to iCloud+ page
+            self.driver.get(ICLOUD_URL)
+            
+            # Wait for page to load
+            WebDriverWait(self.driver, WAIT_TIMEOUT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "icloud-plus-page-route"))
+            )
+            
+            # Re-open Hide My Email
+            print("Re-opening Hide My Email...")
+            hide_my_email_tile = WebDriverWait(self.driver, WAIT_TIMEOUT).until(
+                EC.element_to_be_clickable((By.XPATH, "//article[@aria-label='Hide My Email']"))
+            )
+            hide_my_email_tile.click()
+            
+            # Switch to the iframe again
+            WebDriverWait(self.driver, WAIT_TIMEOUT).until(
+                EC.frame_to_be_available_and_switch_to_it((By.XPATH, "//iframe[@data-name='hidemyemail']"))
+            )
+            
+            print("Hide My Email interface reset successfully.")
+            time.sleep(2)  # Give it a moment to fully load
+            
+        except Exception as e:
+            print(f"Error resetting interface: {e}")
+            print("Attempting alternative reset method...")
+            
+            # Alternative: Just refresh the current page
+            try:
+                self.driver.refresh()
+                time.sleep(3)
+                
+                # Try to switch back to iframe
+                WebDriverWait(self.driver, WAIT_TIMEOUT).until(
+                    EC.frame_to_be_available_and_switch_to_it((By.XPATH, "//iframe[@data-name='hidemyemail']"))
+                )
+            except:
+                print("Reset failed. You may need to manually refresh the page.")
+    
     def open_hide_my_email(self):
         """Open the Hide My Email modal"""
         print("Looking for the 'Hide My Email' tile...")
@@ -445,27 +492,28 @@ class EmailManager:
             print(f"No {section} emails found{f' matching {search_term}' if search_term else ''}.")
             return False
             
-        # Collect email addresses
+        # Collect email addresses and labels
         emails_to_process = []
         for item in items:
-            try:
-                email_address = item.find_element(By.CLASS_NAME, "searchable-card-subtitle").text
-                emails_to_process.append(email_address)
-            except:
-                continue
+            email_address, label = self.get_email_details(item)
+            if email_address:
+                emails_to_process.append((email_address, label))
                 
         # Display emails that will be affected
         display_limit = 50  # Show first 50 in detail
         print(f"📋 Emails to be {action_text.lower()}: {len(emails_to_process)} total")
         
         if search_term:
-            print(f"🔍 Filter applied: '{search_term}'")
+            print(f"🔍 Filter applied: '{search_term}' (searches emails and labels)")
         
         print("\n" + "-"*50)
         
-        # Show the emails
-        for i, email in enumerate(emails_to_process[:display_limit], 1):
-            print(f"{i:3}. {email}")
+        # Show the emails with labels
+        for i, (email, label) in enumerate(emails_to_process[:display_limit], 1):
+            if label:
+                print(f"{i:3}. {email} → {label}")
+            else:
+                print(f"{i:3}. {email}")
             
         if len(emails_to_process) > display_limit:
             print(f"\n... and {len(emails_to_process) - display_limit} more emails")
@@ -475,7 +523,7 @@ class EmailManager:
         # Show summary by service
         if len(emails_to_process) >= 5:
             services = {}
-            for email in emails_to_process:
+            for email, label in emails_to_process:
                 if '@' in email:
                     prefix = email.split('@')[0]
                     parts = prefix.split('.')
@@ -591,12 +639,15 @@ class EmailManager:
         """Setup search filtering if needed"""
         if self.mode != '3':  # Not purge mode
             use_search = self.get_user_input(
-                "Do you want to filter by a specific search term? (yes/no): ",
+                "Do you want to filter by a specific search term?\n"
+                "(Searches both email addresses and labels/notes)\n"
+                "Enter (yes/no): ",
                 ['yes', 'y', 'no', 'n']
             )
             
             if use_search in ['yes', 'y']:
                 self.search_term = self.get_search_term()
+                print(f"Searching for '{self.search_term}' in both emails and labels...")
                 
         if self.search_term:
             self.apply_search_filter('active' if self.mode in ['1', '3'] else 'inactive')
@@ -648,13 +699,60 @@ class EmailManager:
         except Exception as e:
             print(f"Error getting {section} email count: {e}")
             return "0", 0, []
+    
+    def get_email_details(self, item):
+        """Get both email address and label/note from an item"""
+        try:
+            # Get email address
+            email_address = item.find_element(By.CLASS_NAME, "searchable-card-subtitle").text
+            
+            # Get label/note from the h2 element within card-title
+            label = ""
+            source = ""
+            try:
+                # Find the h2 element within card-title for the main label
+                label_element = item.find_element(By.CSS_SELECTOR, ".card-title h2.Typography")
+                label = label_element.text
+                
+                # Also try to get the source (e.g., "From Safari")
+                try:
+                    source_element = item.find_element(By.CSS_SELECTOR, ".card-title span.Typography")
+                    source = source_element.text
+                except:
+                    pass
+                    
+            except:
+                # Fallback: try direct card-title if structure is different
+                try:
+                    card_title = item.find_element(By.CLASS_NAME, "card-title")
+                    label = card_title.text.split('\n')[0] if card_title.text else ""
+                except:
+                    pass
+            
+            # Combine label and source if both exist
+            if label and source:
+                full_label = f"{label} ({source})"
+            else:
+                full_label = label
+                
+            return email_address, full_label
+        except Exception as e:
+            return None, None
             
     def process_email_item(self, item, action):
         """Process a single email item (deactivate or delete)"""
         try:
-            # Get email address
-            email_address = item.find_element(By.CLASS_NAME, "searchable-card-subtitle").text
-            print(f"Processing: {email_address}")
+            # Get email address and label
+            email_address, label = self.get_email_details(item)
+            if not email_address:
+                email_address = item.find_element(By.CLASS_NAME, "searchable-card-subtitle").text
+                label = ""
+            
+            # Display with label if available
+            if label:
+                print(f"Processing: {email_address} (Label: {label})")
+            else:
+                print(f"Processing: {email_address}")
             
             # Expand item
             expand_button = item.find_element(By.CLASS_NAME, "button-expand")
@@ -679,14 +777,22 @@ class EmailManager:
             confirm_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, confirm_xpath))
             )
-            print(f"--> {action.capitalize()[:-1]}ing {email_address}...")
+            
+            # Show label in action message if available
+            if label:
+                print(f"--> {action.capitalize()[:-1]}ing {email_address} (Label: {label})...")
+            else:
+                print(f"--> {action.capitalize()[:-1]}ing {email_address}...")
+                
             self.driver.execute_script("arguments[0].click();", confirm_button)
             
             WebDriverWait(self.driver, 15).until(
                 EC.invisibility_of_element_located((By.XPATH, confirm_xpath))
             )
             
-            return True, email_address  # Return success and email address
+            # Return email with label for logging
+            display_name = f"{email_address} (Label: {label})" if label else email_address
+            return True, display_name
             
         except TimeoutException:
             print(f"Error: No '{button_text}' button found. Stopping.")
@@ -1090,6 +1196,9 @@ class EmailManager:
                     print("\n" + "="*50)
                     print("Returning to main menu...")
                     print("="*50 + "\n")
+                    
+                    # Reset the interface for next operation
+                    self.reset_hide_my_email()
                     continue
                 
                 self.setup_search_filter()
@@ -1121,6 +1230,9 @@ class EmailManager:
                 print("\n" + "="*50)
                 print("Returning to main menu...")
                 print("="*50 + "\n")
+                
+                # Reset the interface for next operation
+                self.reset_hide_my_email()
                 
                 # Reset for next operation
                 self.mode = None
