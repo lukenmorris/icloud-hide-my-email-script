@@ -124,6 +124,10 @@ try:
                     break
                 
                 item = email_items[0]
+                # UPDATED: Get email address for logging
+                email_address = item.find_element(By.CLASS_NAME, "searchable-card-subtitle").text
+                print(f"Processing: {email_address}")
+
                 expand_button = item.find_element(By.CLASS_NAME, "button-expand")
                 driver.execute_script("arguments[0].click();", expand_button)
                 time.sleep(2)
@@ -138,11 +142,12 @@ try:
                 confirm_deactivate_button = WebDriverWait(driver, 10).until(
                     EC.element_to_be_clickable((By.XPATH, confirm_button_xpath))
                 )
+                print(f"--> Deactivating {email_address}...")
                 driver.execute_script("arguments[0].click();", confirm_deactivate_button)
                 
                 WebDriverWait(driver, 15).until(EC.invisibility_of_element_located((By.XPATH, confirm_button_xpath)))
                 processed_count += 1
-                print(f"Successfully deactivated email #{processed_count}")
+                print(f"Successfully deactivated email #{processed_count}: {email_address}")
                 time.sleep(2)
 
                 if search_term:
@@ -187,6 +192,10 @@ try:
                     break
 
                 item = email_items[0]
+                # UPDATED: Get email address for logging
+                email_address = item.find_element(By.CLASS_NAME, "searchable-card-subtitle").text
+                print(f"Processing: {email_address}")
+
                 expand_button = item.find_element(By.CLASS_NAME, "button-expand")
                 driver.execute_script("arguments[0].click();", expand_button)
                 time.sleep(2)
@@ -201,11 +210,12 @@ try:
                 confirm_delete_button = WebDriverWait(driver, 10).until(
                     EC.element_to_be_clickable((By.XPATH, confirm_button_xpath))
                 )
+                print(f"--> Deleting {email_address}...")
                 driver.execute_script("arguments[0].click();", confirm_delete_button)
 
                 WebDriverWait(driver, 15).until(EC.invisibility_of_element_located((By.XPATH, confirm_button_xpath)))
                 processed_count += 1
-                print(f"Successfully deleted email #{processed_count}")
+                print(f"Successfully deleted email #{processed_count}: {email_address}")
                 time.sleep(2)
 
                 if search_term:
