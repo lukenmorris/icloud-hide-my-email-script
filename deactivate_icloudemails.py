@@ -4,6 +4,8 @@ A tool to automate deactivation and deletion of Hide My Email addresses
 """
 
 import time
+import os
+import logging
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
 from selenium.webdriver.chrome.options import Options
@@ -12,6 +14,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
 from webdriver_manager.chrome import ChromeDriverManager
+
+# Suppress webdriver-manager logs
+os.environ['WDM_LOG'] = '0'
+
+# Suppress Selenium logs
+logging.getLogger('selenium').setLevel(logging.WARNING)
+logging.getLogger('urllib3').setLevel(logging.WARNING)
 
 
 # Configuration
@@ -46,6 +55,7 @@ class EmailManager:
         self.original_mode = None
         self.deactivated_count = 0
         self.deleted_count = 0
+        self.headless_mode = False
         
     def setup_driver(self):
         """Initialize Chrome WebDriver with options"""
@@ -53,10 +63,17 @@ class EmailManager:
         chrome_options = Options()
         chrome_options.add_argument("--log-level=3")
         chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+        chrome_options.add_experimental_option("useAutomationExtension", False)
+        chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        chrome_options.add_argument("--disable-logging")
+        chrome_options.add_argument("--silent")
         
         print("Setting up Chrome driver...")
+        service = ChromeService(ChromeDriverManager().install())
+        service.log_path = os.devnull  # Suppress driver logs
+        
         self.driver = webdriver.Chrome(
-            service=ChromeService(ChromeDriverManager().install()),
+            service=service,
             options=chrome_options
         )
         
@@ -85,6 +102,107 @@ class EmailManager:
         )
         print("✅ Login successful! iCloud+ Features page detected.")
         
+        # Ask about headless mode after successful login
+        self.prompt_headless_mode()
+        
+    def prompt_headless_mode(self):
+        """Ask user if they want to switch to headless mode after login"""
+        print("\n" + "="*50)
+        print("HEADLESS MODE OPTION")
+        print("="*50)
+        print("Headless mode runs the browser in the background (no visible window).")
+        print("This can be less distracting and may run slightly faster.")
+        print("Note: You won't be able to see what's happening.")
+        print("="*50)
+        
+        use_headless = self.get_user_input(
+            "Would you like to switch to headless mode? (yes/no): ",
+            ['yes', 'y', 'no', 'n']
+        )
+        
+        if use_headless in ['yes', 'y']:
+            print("Switching to headless mode...")
+            self.switch_to_headless()
+        else:
+            print("Continuing with visible browser window...")
+            
+    def switch_to_headless(self):
+        """Switch from regular to headless mode by recreating the driver"""
+        try:
+            # Save the current page URL and cookies
+            current_url = self.driver.current_url
+            cookies = self.driver.get_cookies()
+            
+            # Close the current driver
+            self.driver.quit()
+            
+            # Create new headless driver
+            print("Setting up headless Chrome driver...")
+            chrome_options = Options()
+            chrome_options.add_argument("--headless=new")  # Use new headless mode
+            chrome_options.add_argument("--no-sandbox")
+            chrome_options.add_argument("--disable-dev-shm-usage")
+            chrome_options.add_argument("--disable-gpu")
+            chrome_options.add_argument("--window-size=1920,1080")
+            chrome_options.add_argument("--log-level=3")
+            chrome_options.add_argument("--silent")
+            chrome_options.add_argument("--disable-logging")
+            chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+            chrome_options.add_experimental_option('excludeSwitches', ['enable-logging'])
+            chrome_options.add_experimental_option("useAutomationExtension", False)
+            
+            # Suppress all console output in headless mode
+            if os.name == 'nt':  # Windows
+                chrome_options.add_argument("--disable-console")
+            
+            service = ChromeService(ChromeDriverManager().install())
+            service.log_path = os.devnull  # Suppress driver logs
+            service.creation_flags = 0x08000000 if os.name == 'nt' else 0  # CREATE_NO_WINDOW on Windows
+            
+            self.driver = webdriver.Chrome(
+                service=service,
+                options=chrome_options
+            )
+            
+            # Navigate back to the page
+            self.driver.get(current_url)
+            
+            # Restore cookies to maintain session
+            for cookie in cookies:
+                # Remove 'sameSite' if it causes issues
+                if 'sameSite' in cookie:
+                    del cookie['sameSite']
+                try:
+                    self.driver.add_cookie(cookie)
+                except:
+                    pass  # Some cookies might not be addable, that's okay
+                    
+            # Refresh to apply cookies
+            self.driver.refresh()
+            
+            # Wait for page to load and verify we're still logged in
+            WebDriverWait(self.driver, WAIT_TIMEOUT).until(
+                EC.presence_of_element_located((By.CLASS_NAME, "icloud-plus-page-route"))
+            )
+            
+            print("✅ Successfully switched to headless mode!")
+            self.headless_mode = True
+            
+        except Exception as e:
+            print(f"⚠️ Failed to switch to headless mode: {e}")
+            print("Falling back to visible mode...")
+            # If switching fails, recreate the visible driver
+            self.setup_driver()
+            self.driver.get(current_url)
+            for cookie in cookies:
+                if 'sameSite' in cookie:
+                    del cookie['sameSite']
+                try:
+                    self.driver.add_cookie(cookie)
+                except:
+                    pass
+            self.driver.refresh()
+    
     def open_hide_my_email(self):
         """Open the Hide My Email modal"""
         print("Looking for the 'Hide My Email' tile...")
@@ -115,9 +233,16 @@ class EmailManager:
             "1. Deactivate active emails\n"
             "2. Permanently delete inactive emails\n"
             "3. Purge mode (deactivate then delete)\n"
-            "Enter choice (1, 2, or 3): ",
-            ['1', '2', '3']
+            "4. Exit\n"
+            "Enter choice (1, 2, 3, or 4): ",
+            ['1', '2', '3', '4']
         )
+        
+        if mode == '4':
+            print("Exiting... Thank you for using Hide My Email Manager!")
+            print("You can close the browser window manually.")
+            exit()
+            
         self.mode = mode
         self.original_mode = mode
         
@@ -142,7 +267,7 @@ class EmailManager:
         
         if confirm in ['no', 'n']:
             print("Purge mode cancelled. Exiting script.")
-            self.cleanup()
+            print("You can close the browser window manually.")
             exit()
             
         print("Purge mode confirmed. Proceeding...")
@@ -177,7 +302,7 @@ class EmailManager:
         
         if final_confirm in ['no', 'n']:
             print("Purge all cancelled. Exiting script.")
-            self.cleanup()
+            print("You can close the browser window manually.")
             exit()
             
         print("Purging ALL emails confirmed. Proceeding...")
@@ -290,18 +415,19 @@ class EmailManager:
                 EC.invisibility_of_element_located((By.XPATH, confirm_xpath))
             )
             
-            return True
+            return True, email_address  # Return success and email address
             
         except TimeoutException:
             print(f"Error: No '{button_text}' button found. Stopping.")
-            return False
+            return False, None
         except Exception as e:
             print(f"Error processing email: {e}")
-            return False
+            return False, None
             
     def deactivate_emails(self):
         """Deactivate active emails"""
-        print("\nStarting Deactivation process...")
+        mode_indicator = " (HEADLESS MODE)" if self.headless_mode else ""
+        print(f"\nStarting Deactivation process{mode_indicator}...")
         processed_count = 0
         
         while True:
@@ -327,9 +453,10 @@ class EmailManager:
                     break
                     
                 # Process first item
-                if self.process_email_item(items[0], 'deactivate'):
+                success, email_address = self.process_email_item(items[0], 'deactivate')
+                if success:
                     processed_count += 1
-                    print(f"Successfully deactivated email #{processed_count}")
+                    print(f"Successfully deactivated email #{processed_count}: {email_address}")
                     time.sleep(2)
                     
                     # Reapply search if needed
@@ -354,7 +481,8 @@ class EmailManager:
         
     def delete_emails(self):
         """Delete inactive emails"""
-        print("\nStarting Deletion process...")
+        mode_indicator = " (HEADLESS MODE)" if self.headless_mode else ""
+        print(f"\nStarting Deletion process{mode_indicator}...")
         processed_count = 0
         
         while True:
@@ -380,9 +508,10 @@ class EmailManager:
                     break
                     
                 # Process first item
-                if self.process_email_item(items[0], 'delete'):
+                success, email_address = self.process_email_item(items[0], 'delete')
+                if success:
                     processed_count += 1
-                    print(f"Successfully deleted email #{processed_count}")
+                    print(f"Successfully deleted email #{processed_count}: {email_address}")
                     time.sleep(2)
                     
                     # Reapply search if needed
@@ -411,7 +540,7 @@ class EmailManager:
         if self.deactivated_count == 0:
             print("No active emails were found, but checking for inactive emails...")
         print("="*50 + "\n")
-        time.sleep(3)
+        time.sleep(3)  # Reduced from original sleep time
         
         if self.search_term:
             self.apply_search_filter('inactive')
@@ -436,10 +565,8 @@ class EmailManager:
         print("="*50)
         
     def cleanup(self):
-        """Clean up resources"""
-        if self.driver:
-            print("Script finished. Closing browser.")
-            self.driver.quit()
+        """Clean up message only"""
+        print("Script finished.")
             
     def run(self):
         """Main execution flow"""
@@ -447,29 +574,59 @@ class EmailManager:
             self.setup_driver()
             self.login_to_icloud()
             self.open_hide_my_email()
-            self.select_mode()
-            self.setup_search_filter()
             
-            # Execute based on mode
-            if self.mode == '1' or self.mode == '3':
-                self.deactivate_emails()
+            # Main operation loop
+            while True:
+                self.select_mode()
+                self.setup_search_filter()
                 
-                if self.original_mode == '3':
-                    self.run_purge_transition()
-                    self.delete_emails()
-                    self.show_purge_summary()
+                # Execute based on mode
+                if self.mode == '1' or self.mode == '3':
+                    self.deactivate_emails()
                     
-            elif self.mode == '2':
-                self.delete_emails()
+                    if self.original_mode == '3':
+                        self.run_purge_transition()
+                        self.delete_emails()
+                        self.show_purge_summary()
+                        
+                elif self.mode == '2':
+                    self.delete_emails()
                 
-            time.sleep(10)
-            
+                # Ask if user wants to continue
+                print("\n" + "="*50)
+                continue_choice = self.get_user_input(
+                    "Would you like to perform another operation? (yes/no): ",
+                    ['yes', 'y', 'no', 'n']
+                )
+                
+                if continue_choice in ['no', 'n']:
+                    print("Thank you for using Hide My Email Manager!")
+                    print("You can close the browser window manually.")
+                    break
+                    
+                print("\n" + "="*50)
+                print("Returning to main menu...")
+                print("="*50 + "\n")
+                
+                # Reset for next operation
+                self.mode = None
+                self.original_mode = None
+                self.search_term = None
+                self.deactivated_count = 0
+                self.deleted_count = 0
+                
+        except KeyboardInterrupt:
+            print("\n\n⚠️ Script interrupted by user (Ctrl+C)")
+            print("Script terminated. You can close the browser window manually.")
         except TimeoutException as e:
             print("\n--- ERROR ---")
             print("The script timed out waiting for an element to appear.")
             print(f"Error details: {e}")
-        finally:
-            self.cleanup()
+            print("You can close the browser window manually.")
+        except Exception as e:
+            print(f"\n--- ERROR ---")
+            print(f"An unexpected error occurred: {e}")
+            print("You can close the browser window manually.")
 
 
 def main():
