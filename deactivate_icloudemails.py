@@ -56,7 +56,38 @@ class EmailManager:
         self.deactivated_count = 0
         self.deleted_count = 0
         self.headless_mode = False
+        self.operation_start_time = None
         
+    def estimate_time_remaining(self, processed, total, start_time):
+        """Estimate time remaining based on current pace"""
+        if processed == 0:
+            return "Calculating..."
+        
+        elapsed = time.time() - start_time
+        if elapsed < 1:  # Avoid division issues
+            return "Calculating..."
+            
+        rate = processed / elapsed  # emails per second
+        remaining = total - processed
+        eta_seconds = remaining / rate if rate > 0 else 0
+        
+        if eta_seconds < 60:
+            return f"{eta_seconds:.0f} seconds"
+        elif eta_seconds < 3600:
+            return f"{eta_seconds/60:.1f} minutes"
+        else:
+            return f"{eta_seconds/3600:.1f} hours"
+    
+    def format_elapsed_time(self, start_time):
+        """Format elapsed time in human-readable format"""
+        elapsed = time.time() - start_time
+        if elapsed < 60:
+            return f"{elapsed:.0f} seconds"
+        elif elapsed < 3600:
+            return f"{elapsed/60:.1f} minutes"
+        else:
+            return f"{elapsed/3600:.1f} hours"
+    
     def setup_driver(self):
         """Initialize Chrome WebDriver with options"""
         print("Configuring Chrome options...")
@@ -423,22 +454,65 @@ class EmailManager:
         except Exception as e:
             print(f"Error processing email: {e}")
             return False, None
+    
+    def estimate_time_remaining(self, processed, total, start_time):
+        """Estimate time remaining based on current pace"""
+        if processed == 0:
+            return "Calculating..."
+        
+        elapsed = time.time() - start_time
+        if elapsed < 1:  # Avoid division issues
+            return "Calculating..."
             
+        rate = processed / elapsed  # emails per second
+        remaining = total - processed
+        eta_seconds = remaining / rate if rate > 0 else 0
+        
+        if eta_seconds < 60:
+            return f"{eta_seconds:.0f} seconds"
+        elif eta_seconds < 3600:
+            return f"{eta_seconds/60:.1f} minutes"
+        else:
+            return f"{eta_seconds/3600:.1f} hours"
+    
+    def format_elapsed_time(self, start_time):
+        """Format elapsed time in human-readable format"""
+        elapsed = time.time() - start_time
+        if elapsed < 60:
+            return f"{elapsed:.0f} seconds"
+        elif elapsed < 3600:
+            return f"{elapsed/60:.1f} minutes"
+        else:
+            return f"{elapsed/3600:.1f} hours"
+    
     def deactivate_emails(self):
         """Deactivate active emails"""
         mode_indicator = " (HEADLESS MODE)" if self.headless_mode else ""
         print(f"\nStarting Deactivation process{mode_indicator}...")
         processed_count = 0
+        self.operation_start_time = time.time()
+        initial_total = None
         
         while True:
             try:
                 total, relevant, items = self.get_email_count('active')
                 
-                # Display count
+                # Store initial total for progress tracking
+                if initial_total is None:
+                    initial_total = relevant
+                
+                # Display count with progress
                 if self.search_term:
-                    print(f"Remaining active emails matching '{self.search_term}': {relevant} (Total active: {total})")
+                    print(f"\nRemaining active emails matching '{self.search_term}': {relevant} (Total active: {total})")
                 else:
-                    print(f"Remaining active emails: {relevant}")
+                    print(f"\nRemaining active emails: {relevant}")
+                
+                # Show progress and time estimate if we've processed some
+                if processed_count > 0 and initial_total > 0:
+                    progress_pct = (processed_count / initial_total) * 100
+                    elapsed = self.format_elapsed_time(self.operation_start_time)
+                    eta = self.estimate_time_remaining(processed_count, initial_total, self.operation_start_time)
+                    print(f"Progress: {processed_count}/{initial_total} ({progress_pct:.1f}%) | Elapsed: {elapsed} | ETA: {eta}")
                     
                 # Check if done
                 if total in ["0", "no"] or relevant == 0:
@@ -456,7 +530,14 @@ class EmailManager:
                 success, email_address = self.process_email_item(items[0], 'deactivate')
                 if success:
                     processed_count += 1
-                    print(f"Successfully deactivated email #{processed_count}: {email_address}")
+                    print(f"✅ Successfully deactivated email #{processed_count}: {email_address}")
+                    
+                    # Show rate after every 5 emails
+                    if processed_count % 5 == 0:
+                        elapsed = time.time() - self.operation_start_time
+                        rate = processed_count / elapsed if elapsed > 0 else 0
+                        print(f"   📊 Rate: {rate:.1f} emails/minute")
+                    
                     time.sleep(2)
                     
                     # Reapply search if needed
@@ -475,8 +556,21 @@ class EmailManager:
                 print(f"An error occurred: {e}")
                 print("Stopping to prevent processing wrong emails.")
                 break
-                
-        print(f"\n✅ Deactivation complete. Total addresses deactivated: {processed_count}")
+        
+        # Final summary
+        if processed_count > 0:
+            total_time = self.format_elapsed_time(self.operation_start_time)
+            print(f"\n✅ Deactivation complete!")
+            print(f"   • Total deactivated: {processed_count}")
+            print(f"   • Time taken: {total_time}")
+            if self.operation_start_time:
+                elapsed = time.time() - self.operation_start_time
+                if elapsed > 0:
+                    rate = (processed_count / elapsed) * 60
+                    print(f"   • Average rate: {rate:.1f} emails/minute")
+        else:
+            print(f"\n✅ Deactivation complete. No emails were deactivated.")
+            
         self.deactivated_count = processed_count
         
     def delete_emails(self):
@@ -484,16 +578,29 @@ class EmailManager:
         mode_indicator = " (HEADLESS MODE)" if self.headless_mode else ""
         print(f"\nStarting Deletion process{mode_indicator}...")
         processed_count = 0
+        self.operation_start_time = time.time()
+        initial_total = None
         
         while True:
             try:
                 total, relevant, items = self.get_email_count('inactive')
                 
-                # Display count
+                # Store initial total for progress tracking
+                if initial_total is None:
+                    initial_total = relevant
+                
+                # Display count with progress
                 if self.search_term:
-                    print(f"Remaining inactive emails matching '{self.search_term}': {relevant} (Total inactive: {total})")
+                    print(f"\nRemaining inactive emails matching '{self.search_term}': {relevant} (Total inactive: {total})")
                 else:
-                    print(f"Remaining inactive emails: {relevant}")
+                    print(f"\nRemaining inactive emails: {relevant}")
+                
+                # Show progress and time estimate if we've processed some
+                if processed_count > 0 and initial_total > 0:
+                    progress_pct = (processed_count / initial_total) * 100
+                    elapsed = self.format_elapsed_time(self.operation_start_time)
+                    eta = self.estimate_time_remaining(processed_count, initial_total, self.operation_start_time)
+                    print(f"Progress: {processed_count}/{initial_total} ({progress_pct:.1f}%) | Elapsed: {elapsed} | ETA: {eta}")
                     
                 # Check if done
                 if total in ["0", "no"] or relevant == 0:
@@ -511,7 +618,14 @@ class EmailManager:
                 success, email_address = self.process_email_item(items[0], 'delete')
                 if success:
                     processed_count += 1
-                    print(f"Successfully deleted email #{processed_count}: {email_address}")
+                    print(f"✅ Successfully deleted email #{processed_count}: {email_address}")
+                    
+                    # Show rate after every 5 emails
+                    if processed_count % 5 == 0:
+                        elapsed = time.time() - self.operation_start_time
+                        rate = processed_count / elapsed if elapsed > 0 else 0
+                        print(f"   📊 Rate: {rate:.1f} emails/minute")
+                    
                     time.sleep(2)
                     
                     # Reapply search if needed
@@ -529,8 +643,21 @@ class EmailManager:
             except Exception as e:
                 print(f"An error occurred: {e}")
                 break
-                
-        print(f"\n✅ Deletion complete. Total addresses deleted: {processed_count}")
+        
+        # Final summary
+        if processed_count > 0:
+            total_time = self.format_elapsed_time(self.operation_start_time)
+            print(f"\n✅ Deletion complete!")
+            print(f"   • Total deleted: {processed_count}")
+            print(f"   • Time taken: {total_time}")
+            if self.operation_start_time:
+                elapsed = time.time() - self.operation_start_time
+                if elapsed > 0:
+                    rate = (processed_count / elapsed) * 60
+                    print(f"   • Average rate: {rate:.1f} emails/minute")
+        else:
+            print(f"\n✅ Deletion complete. No emails were deleted.")
+            
         self.deleted_count = processed_count
         
     def run_purge_transition(self):
