@@ -1,0 +1,42 @@
+# =============================================================================
+# Python & Virtual Environments
+# =============================================================================
+# Ignore virtual environment folders
+.venv/
+venv/
+env/
+ENV/
+
+# Ignore Python cache files and compiled/optimized files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# =============================================================================
+# Packaging & Distribution
+# =============================================================================
+# Ignore build artifacts and distribution folders
+build/
+dist/
+*.egg-info/
+
+# =============================================================================
+# Tool-Specific Caches & Logs
+# =============================================================================
+# Ignore webdriver-manager cache folder
+.wdm/
+
+# Ignore testing caches
+.pytest_cache/
+.coverage
+
+# Ignore general pip logs
+pip-log.txt
+
+# =============================================================================
+# IDE & OS-Specific Files
+# =============================================================================
+# Ignore common IDE folders
+.idea/
+.vsco

@@ -1,0 +1,56 @@
+# This section defines the build system. For setuptools, this is standard.
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+# This is the main project metadata section, replacing most of setup()
+[project]
+name = "icloud-hide-my-email-manager"
+version = "1.0.0"
+authors = [
+    { name = "Luke Morris", email = "github@lukemorris.io" },
+]
+description = "Automate iCloud Hide My Email management - bulk deactivate and delete email addresses"
+
+# This points to your README file and automatically handles the content type.
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+keywords = ["icloud", "hide-my-email", "automation", "selenium", "email-management", "privacy"]
+
+# All your project's dependencies go here.
+# This replaces reading from requirements.txt.
+dependencies = [
+    "selenium>=4.15.0",
+    "webdriver-manager>=4.0.1",
+]
+
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Internet :: WWW/HTTP :: Browsers",
+    "Topic :: Utilities",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+]
+
+# This section replaces the `entry_points` dictionary.
+[project.scripts]
+hide-my-email = "hide_my_email_manager:main"
+
+# This section replaces the `url` and `project_urls` arguments.
+[project.urls]
+Homepage = "https://github.com/lukenmorris/icloud-hide-my-email-manager"
+"Bug Reports" = "https://github.com/lukenmorris/icloud-hide-my-email-manager/issues"
+Source = "https://github.com/lukenmorris/icloud-hide-my-email-manager"
+Documentation = "https://github.com/lukenmorris/icloud-hide-my-email-manager#readme"
+
+# This setuptools-specific section replaces find_packages(where="src").
+[tool.setuptools.packages.find]
+where = ["src"]
